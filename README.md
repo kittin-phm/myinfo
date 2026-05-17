@@ -1,11 +1,13 @@
 # Hi, I'm Kittin Phummarawong 👋
 
 ## 🙋 About Me
-- ☁️ Cloud Engineer transitioning from 6 years of Service & Quality Engineering
+- ☁️ Cloud & Data Engineer — transitioning from 6 years of Service & Quality Engineering
 - 📊 Data Analytics Engineer — Python, SQL, BigQuery, Prefect, Power BI
-- 🎯 Pursuing AWS SAA-C03 Certification (Udemy, 2026)
+- 🎯 Pursuing AWS SAA-C03 Certification (Udemy · Stephane Maarek, 2026)
 - 🎓 B.Eng. Industrial Engineering — Kasetsart University
 - 📍 Bangkok, Thailand
+
+---
 
 ## 🛠️ Tech Stack
 
@@ -36,57 +38,135 @@
 
 ### 🔧 DevOps & Tools
 ![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat&logo=docker&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-7B42BC?style=flat&logo=terraform&logoColor=white)
 ![Git](https://img.shields.io/badge/Git-F05032?style=flat&logo=git&logoColor=white)
 ![GitHub](https://img.shields.io/badge/GitHub-181717?style=flat&logo=github&logoColor=white)
+
+---
 
 ## 📂 Featured Projects
 
 ### 🛒 Olist E-Commerce Data Pipeline
 > ETL Pipeline · BigQuery · Prefect · Power BI · DAX · SQL
 
-Built an end-to-end data pipeline ingesting 100K+ Brazilian e-commerce orders into BigQuery.
-- Designed **Prefect ETL pipeline** with extract, type casting, DQ check, and load tasks
-- Built **SQL data models**: staging → intermediate → mart + 3 KPI views (GMV, AOV, On-time delivery)
-- Created **Power BI dashboard** with DAX measures, KPI cards, trend charts, and month slicer
-- Documented null strategy for `product_category_name` (~1,600 nulls) and `order_delivered_customer_date`
+End-to-end data pipeline ingesting 100K+ Brazilian e-commerce orders into BigQuery with a layered SQL data model and a Power BI dashboard covering September 2016 – August 2018.
+
+**Pipeline layers:**
+```
+stg_orders / stg_order_items / stg_payments   ← raw staged data (minimal casting)
+  → int_orders_enriched                        ← joined + delivery_lead_time_days + is_ontime flag
+    → mart_daily_revenue                       ← aggregated daily mart (Power BI source)
+      → KPI views: GMV · AOV · On-Time Rate   ← match dashboard metrics exactly
+```
+
+**What was built:**
+- **Prefect ETL pipeline** — extract 3 CSVs → type cast → DQ checks (reject null order_id / negative price) → load to BigQuery
+- **SQL data models** — staging → intermediate → mart + 3 KPI views
+- **Power BI dashboard** — DAX measures, KPI cards, monthly trend charts, year_month slicer
+
+**Dashboard KPIs:**
+| Metric | Value |
+|---|---|
+| Total GMV | 14.21M BRL |
+| Avg AOV | 130.72 BRL |
+| Avg On-Time Rate | ~85–90% (monthly avg) |
+
+**Data Quality & Null Strategy:**
+- `product_category_name`: ~1,600 null rows retained as-is in staging; filtered downstream in intermediate layer to avoid losing order revenue
+- `order_delivered_customer_date`: null for undelivered orders — excluded from on-time calculation via `WHERE order_status = 'delivered'`
+- Null `order_id` and negative `price` rows rejected in DQ layer before loading
+
+**Setup:**
+```bash
+# Install dependencies
+py -3.11 -m pip install -r requirements.txt
+
+# Authenticate with Google Cloud
+gcloud auth application-default login
+
+# Run pipeline (extract → cast → DQ check → load)
+py -3.11 pipelines/flow.py
+```
+
+**BigQuery:** Project `project-839c799e-2b34-4fae-814` · Dataset `olist_staging`
+
+**Data source:** [Brazilian E-Commerce Dataset — Kaggle](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
 
 👉 [View Repository](https://github.com/kittin-phm/olist-data-pipeline)
 
 ---
 
 ### ☁️ AWS Cloud Infrastructure Lab
-> VPC · EC2 · ALB · Auto Scaling · RDS · S3 · CloudWatch · SNS · IAM
+> VPC · EC2 · ALB · Auto Scaling · RDS · S3 · Lambda · EventBridge · CloudWatch · SNS · Terraform
 
-Designed and deployed a production-grade AWS cloud infrastructure from scratch.
-- Designed **full VPC architecture** with public/private subnets across 2 AZs and Internet Gateway
-- Provisioned **EC2 Auto Scaling group** behind ALB with CPU-based scale-out/in policies
-- Set up **RDS MySQL Single-AZ** with automated backups and snapshot schedules
-- Configured **S3** with versioning, lifecycle rules to Glacier, and Origin Access Control
-- Implemented **CloudWatch dashboards + SNS alerts** for CPU, memory, and disk thresholds
+Production-grade AWS cloud infrastructure built from scratch across 7 phases — all running on a free-tier budget with an automated cost scheduler.
+
+**Architecture:**
+```
+Internet
+    │
+    ▼
+[Internet Gateway: cloud-lab-igw]
+    │
+    ▼
+[ALB: cloud-lab-alb]  ← HTTP :80
+    │
+    ▼  (private subnets)
+[Auto Scaling Group: cloud-lab-asg]
+  EC2 t2.micro · Amazon Linux · Apache httpd
+    │
+    ▼
+[RDS MySQL: cloud-lab-db]
+  db.t3.micro · no public access
+
+S3: cloud-lab-bucket-kittin
+  Versioning ON · Lifecycle → Glacier after 90 days
+
+Lambda scheduler (Terraform):
+  🟢 09:00 BKK (weekdays) → ASG/RDS ON
+  🔴 18:00 BKK (weekdays) → ASG/RDS OFF
+```
+
+**What was built:**
+
+| Phase | What |
+|---|---|
+| 1 — VPC & Networking | CIDR `10.0.0.0/16` · 2 public + 2 private subnets across 2 AZs · IGW + route table |
+| 2 — Security Groups | ALB-sg → EC2-sg → RDS-sg (least-privilege chain) |
+| 3 — Database | RDS MySQL `db.t3.micro` in private subnets · automated backups |
+| 4 — Compute | Launch template + ASG (min 1 / max 3) · CPU scaling at 50% · ALB |
+| 5 — Storage | S3 with versioning + Glacier lifecycle after 90 days |
+| 6 — Cost Scheduler | Terraform stack · Lambda + EventBridge · 16 resources · shuts down after hours |
+| 7 — Monitoring | CloudWatch dashboard · CPU alarm >70% for 5 min → SNS email alert |
+
+**Terraform scheduler** (`cloud-lab-scheduler/`):
+```bash
+terraform init    # ✅ Initialized
+terraform plan    # ✅ 16 resources planned
+terraform apply   # ✅ 16 resources created
+```
+
+**Live URL:** [http://cloud-lab-alb-521128514.ap-southeast-1.elb.amazonaws.com](http://cloud-lab-alb-521128514.ap-southeast-1.elb.amazonaws.com)
 
 👉 [View Repository](https://github.com/kittin-phm/aws-cloud-infrastructure-lab)
 
 ---
 
-### ⚡ E-Commerce Serverless Platform
-> S3 · Lambda · API Gateway · DynamoDB · CloudFront · Route 53
-
-Architected a fully serverless e-commerce backend on AWS.
-- S3 triggered **Lambda** on upload events; results stored in **DynamoDB** with on-demand scaling
-- Served API via **API Gateway** with caching; static frontend on S3 + **CloudFront** + **Route 53**
-- Applied least-privilege **IAM roles** and Origin Access Control across all services
-
 ## 📜 Certifications & Training
-- 🎯 AWS SAA-C03 — In Progress (Udemy — Stephane Maarek, 2026)
+- 🎯 AWS SAA-C03 — Udemy · Stephane Maarek, 2026
 - 📊 Data Engineering Bootcamp — Data TH School, 2025
 - 🐍 Data Engineering & Python — Datacamp, 2024
 - ☁️ Google Cloud / Data Engineering — Coursera, 2024
 - 📈 Data Analyst Fundamentals — Data Rockie School, 2024
 
+---
+
 ## 💼 Work Experience
-- **Data Analyst Intern** — August Ten Digital (Oct–Nov 2025)
+- **Data Analyst Intern** — August Ten Digital (Oct – Nov 2025)
 - **Service Engineer** — WIKA Instrumentation Thailand (2022–2025)
 - **Calibration Engineer** — Ming Deng Metrology Thailand (2018–2022)
+
+---
 
 ## 📬 Contact
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-Kittin_Phummarawong-0077B5?style=flat&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/kittin-phummarawong-73b367291/)
